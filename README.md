@@ -1,97 +1,121 @@
-```markdown
-# CAISRA: Content-Aware Intelligent Stream Routing Agent 
-**Developed by:** [Osama Hurubi](https://github.com/OMH-sa)
+# CAISRA: Content-Aware Intelligent Stream Routing Agent
 
-**CAISRA** is a state-of-the-art, proactive AI system designed to eliminate live broadcasting latency and stream disruptions (buffering) caused by unexpected network drops. 
+A webcam prototype that simulates content-aware compression during network drops, keeping only the detected person sharp. Personal project, 2026.
 
-Instead of traditional reactive methods (which degrade video quality after the network fails), CAISRA uses a combination of **Time-Series Threat Detection** and **Lightweight Computer Vision** to anticipate network anomalies and execute content-aware mitigation strategies in real-time.
+## The Problem
 
----
+When a live stream loses bandwidth, the usual response is to lower the quality of the whole frame, so the viewer loses detail everywhere, including the person they are watching. CAISRA instead keeps the important region sharp and gives up detail in the rest.
 
-##  Key Features
+## Approach
 
-* **Proactive Threat Detection:** Simulates and detects network bandwidth drops (Ping, Jitter, Packet Loss) using AI anomaly detection.
-* **Content-Aware Vision:** Utilizes `YOLOv8-Nano` for real-time Reporter Face Detection (ROI) and `Farneback Optical Flow` for scene motion estimation.
-* **Smart RoI Compression:** During a network drop in a static scene, the AI Agent applies an elegant professional blur (Gaussian Blur 21x21) to the background while maintaining crisp 4K bitrate focus exclusively on the reporter's face.
-* **Dynamic Scenery Mode:** If the camera pans to a crowd or landscape (No Face + High Motion), the system intelligently aborts compression to avoid motion blur and switches to `[DYNAMIC ROUTING]` to protect the wide shot.
-* **Real-Time OSD Dashboard:** On-Screen Display indicating network health, motion scores, and instantaneous AI Agent decisions.
+- **Scene sensing:** YOLOv8-Nano person detection (COCO-pretrained, not retrained) and optical-flow motion scoring (Farneback).
+- **Decision:** a rule-based agent with 3 actions. During a network drop in a still shot, it keeps the person sharp and blurs the background, as a visual stand-in for compression.
+- **Key decision:** protect the person instead of degrading the full frame, which was rejected because it blurs the person too.
+- **Separate experiment:** an Isolation Forest trained on 1,000 seconds of simulated ping, jitter, and packet-loss data to flag outages. It is not connected to the live prototype, where the drop is a fixed timer.
 
----
+## Results
 
-##  Technology Stack
+On simulated data, the Isolation Forest flags outages with 0.88 precision and recall; a one-line packet-loss rule scores 1.00. Measured by `evaluate.py` on the committed `network_data.csv`, where the simulator injected an outage from second 600 to 799 (200 of 1,000 seconds):
 
-* **Language:** Python 3.x
-* **Computer Vision:** OpenCV (`cv2`)
-* **Object Detection:** Ultralytics (YOLOv8-Nano)
-* **Machine Learning / AI:** Scikit-learn (Isolation Forest for Anomaly Detection)
-* **Data Processing:** Pandas, NumPy
-* **Visualization:** Matplotlib
+| Method | Seconds flagged | True positives | False positives | Precision | Recall |
+|---|---|---|---|---|---|
+| Isolation Forest | 200 | 176 | 24 | 0.88 | 0.88 |
+| Rule: packet loss > 0 | 200 | 200 | 0 | 1.00 | 1.00 |
 
----
+What this means: in this simulation, packet loss is exactly 0 outside the outage, so a one-line rule finds every outage second with no false alarms, and the Isolation Forest does worse. The model was also given the outage share (`contamination=0.2`, which is 200 of 1,000 seconds), and it was trained and scored on the same data. It has not been tried on real network traces.
 
-##  Installation & Setup
+The live prototype has no measured results yet: frame rate, bandwidth saved, and image quality were not measured.
 
-1. **Clone the repository:**
-   ```bash
-   git clone [https://github.com/OMH-sa/CAISRA.git](https://github.com/OMH-sa/CAISRA.git)
-   cd CAISRA
+## How It Works
 
+```mermaid
+flowchart LR
+    subgraph LIVE["Live prototype: caisra_final.py"]
+        CAM["Webcam frame"] --> YOLO["YOLOv8-Nano<br/>person detection"]
+        CAM --> FLOW["Farneback optical flow<br/>motion score"]
+        TIMER["Simulated drop<br/>seconds 10 to 30"] --> AGENT{"Rule-based agent"}
+        YOLO --> AGENT
+        FLOW --> AGENT
+        AGENT --> OUT["Background blur or on-screen label<br/>plus status overlay"]
+    end
+    subgraph OFFLINE["Separate network experiment"]
+        SIM["network_sim.py<br/>1,000 s of simulated data"] --> CSV[("network_data.csv")]
+        CSV --> IFOREST["threat_detector.py<br/>Isolation Forest"]
+        CSV --> EVAL["evaluate.py<br/>precision and recall"]
+    end
 ```
 
-2. **Create and activate a virtual environment (Recommended):**
-```bash
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# Mac/Linux:
-source .venv/bin/activate
+The two parts do not exchange data. During the simulated drop, the agent picks one of 3 actions:
 
-```
+| Person in frame | Motion score | Action | What happens |
+|---|---|---|---|
+| Yes | below 3.0 | `SMART_COMPRESSION` | Background blurred (21×21 Gaussian), person box kept sharp |
+| No | above 3.0 | `SCENERY_MODE` | On-screen label only: protect the wide shot |
+| Any other case | | `DYNAMIC_ROUTING` | On-screen label only: switch to a backup server |
 
+Outside the drop, the action is `NORMAL`. An overlay at the top of the window shows the time, network status, motion score, and current action.
 
-3. **Install dependencies:**
-```bash
-pip install opencv-python numpy ultralytics scikit-learn pandas matplotlib
+## Demo
 
-```
+> **Demo GIF to be added** (`docs/demo.gif`, 10 to 15 seconds): a still shot where the background blurs once the drop starts at second 10, then a camera pan with no person in frame.
 
+## Quickstart
 
-
----
-
-##  Usage
-
-Run the final integrated prototype. Ensure your webcam is connected.
+Requires Python 3.8+ and a webcam.
 
 ```bash
+git clone https://github.com/OMH-sa/CAISRA.git && cd CAISRA
+pip install opencv-python ultralytics scikit-learn pandas matplotlib
 python caisra_final.py
-
 ```
 
-###  Simulation Scenario (caisra_final.py):
+Press `q` to quit. The simulated drop starts at second 10 and ends after second 30. Sit still to see the background blur; leave the frame and move the camera to see the scenery mode.
 
-* **0s to 10s:** The network is stable. The stream runs normally with no compression.
-* **10s to 30s:** A simulated network drop occurs!
-* *If you are sitting still:* The background beautifully blurs (Smart Compression) protecting the bandwidth for your face.
-* *If you move out of frame and pan the camera:* The AI detects a scenery shot, disables compression, and initiates dynamic backup routing.
+The network experiment needs no webcam:
 
-
-* **30s onwards:** The network recovers, and the stream returns to normal. Press `q` to exit.
-
----
-
-##  Project Structure
-
-* `sensor.py`: Phase 1 - Independent visual context and motion tracking module.
-* `network_sim.py`: Phase 2 - Generates synthetic time-series network data with injected anomalies.
-* `threat_detector.py`: Phase 2b - Isolation Forest ML model to detect network threats.
-* `agent.py`: Phase 3 - The logic matrix of the AI decision-making agent.
-* `caisra_final.py`: **Phase 4 - The complete, integrated real-time prototype.**
-
----
-
-*Designed and engineered by [Osama Hurubi](https://github.com/OMH-sa) as a conceptual solution for modern live-broadcasting challenges.*
-
+```bash
+python threat_detector.py   # trains the Isolation Forest and plots the flagged seconds
+python evaluate.py          # prints the Results table above
 ```
 
-```
+`network_sim.py` overwrites `network_data.csv` with new random values, because it has no fixed seed. The Results above use the committed file.
+
+## Project Structure
+
+| File | What it does |
+|---|---|
+| `caisra_final.py` | The live prototype: webcam, person detection, motion score, simulated drop, agent, blur, and overlay |
+| `sensor.py` | Earlier stand-alone version of the scene sensing (person box and motion score), without the agent |
+| `agent.py` | Earlier stand-alone version of the decision rules (2 actions plus normal) on 9 scripted events; not used by `caisra_final.py` |
+| `network_sim.py` | Generates 1,000 seconds of simulated network data with one injected outage and saves `network_data.csv` |
+| `network_data.csv` | The simulated network data used for the Results |
+| `threat_detector.py` | Trains the Isolation Forest and plots the seconds it flags |
+| `evaluate.py` | Scores the Isolation Forest and a packet-loss rule against the injected outage |
+| `yolov8n.pt` | Official Ultralytics YOLOv8-Nano weights, pretrained on COCO, unchanged |
+
+## Data
+
+- **Network data is simulated, not recorded.** `network_sim.py` draws one row per second for 1,000 seconds: ping around 20 ms, jitter around 5 ms, and no packet loss. From second 600 to 799 it injects an outage: ping about 130 ms higher, jitter about 40 ms higher, and packet loss between 1% and 10%.
+- **Video:** the live webcam feed. No video files are stored or shipped.
+- **Model:** `yolov8n.pt` is identical to the YOLOv8-Nano file Ultralytics publishes, pretrained on COCO, where class 0 is `person`. Ultralytics licenses it under AGPL-3.0.
+
+## Limitations
+
+- The network data is simulated; the detector has never seen real traffic.
+- In the live prototype the drop is a fixed timer. The Isolation Forest is not connected to it.
+- The Isolation Forest is trained and scored on the same 1,000 seconds and is given the outage share. On this data a simple packet-loss rule does better.
+- Compression is simulated with a blur. Nothing is encoded, transmitted, or rate-limited.
+- The two routing actions only show a label; there is no backup server.
+- The rules use one fixed motion threshold (3.0) that was not tuned on data.
+- Only the first detected person is protected, and the protected area is the whole body box, not the face.
+- An empty, still scene during a drop also falls into `DYNAMIC_ROUTING`, the catch-all rule.
+- Frame rate was not measured, and there are no automated tests yet.
+- This is a prototype for exploring the idea, not a production system.
+
+## Tech Stack
+
+Python · OpenCV · YOLOv8 (Ultralytics) · scikit-learn · pandas · NumPy · Matplotlib
+
+## Author
+
+**Osama Hurubi** · [LinkedIn](https://www.linkedin.com/in/osama-hurubi) · [GitHub](https://github.com/OMH-sa)
