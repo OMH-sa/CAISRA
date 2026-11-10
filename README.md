@@ -24,6 +24,14 @@ On simulated data, the Isolation Forest flags outages with 0.88 precision and re
 
 What this means: in this simulation, packet loss is exactly 0 outside the outage, so a one-line rule finds every outage second with no false alarms, and the Isolation Forest does worse. The model was also given the outage share (`contamination=0.2`, which is 200 of 1,000 seconds), and it was trained and scored on the same data. It has not been tried on real network traces.
 
+![Ping, jitter, and packet loss over 1,000 simulated seconds, with the injected outage shaded from second 600 to 800](docs/network_stream_health.png)
+
+*The simulated network data. The injected outage (shaded) raises ping and jitter and adds packet loss.*
+
+![Ping over time, with the seconds the Isolation Forest flags marked in red](docs/isolation_forest_flags.png)
+
+*The seconds the Isolation Forest flags (red). The 24 red points outside the outage, before second 600 and after second 799, are false alarms. Both figures are drawn from the committed `network_data.csv`.*
+
 The live prototype has no measured results yet: frame rate, bandwidth saved, and image quality were not measured.
 
 ## How It Works
@@ -55,10 +63,6 @@ The two parts do not exchange data. During the simulated drop, the agent picks o
 
 Outside the drop, the action is `NORMAL`. An overlay at the top of the window shows the time, network status, motion score, and current action.
 
-## Demo
-
-> **Demo GIF to be added** (`docs/demo.gif`, 10 to 15 seconds): a still shot where the background blurs once the drop starts at second 10, then a camera pan with no person in frame.
-
 ## Quickstart
 
 Requires Python 3.8+ and a webcam.
@@ -89,6 +93,7 @@ python evaluate.py          # prints the Results table above
 | `agent.py` | Earlier stand-alone version of the decision rules (2 actions plus normal) on 9 scripted events; not used by `caisra_final.py` |
 | `network_sim.py` | Generates 1,000 seconds of simulated network data with one injected outage and saves `network_data.csv` |
 | `network_data.csv` | The simulated network data used for the Results |
+| `docs/` | The two figures in Results, drawn from `network_data.csv` |
 | `threat_detector.py` | Trains the Isolation Forest and plots the seconds it flags |
 | `evaluate.py` | Scores the Isolation Forest and a packet-loss rule against the injected outage |
 | `yolov8n.pt` | Official Ultralytics YOLOv8-Nano weights, pretrained on COCO, unchanged |
